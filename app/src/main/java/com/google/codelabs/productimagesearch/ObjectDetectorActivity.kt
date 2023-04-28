@@ -1,3 +1,19 @@
+/**
+ * Copyright 2021 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.google.codelabs.productimagesearch
 
 import android.content.Intent
@@ -48,7 +64,7 @@ class ObjectDetectorActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        // Sau khi chụp ảnh, hiển thị để xem trước
+        // After taking camera, display to Preview
         if (resultCode == RESULT_OK) {
             when (requestCode) {
                 REQUEST_IMAGE_CAPTURE -> cameraPhotoUri?.let {
@@ -71,34 +87,56 @@ class ObjectDetectorActivity : AppCompatActivity() {
             ivPreset1.setOnClickListener { setViewAndDetect(getBitmapFromAsset(IMAGE_PRESET_1)) }
             ivPreset2.setOnClickListener { setViewAndDetect(getBitmapFromAsset(IMAGE_PRESET_2)) }
             ivPreset3.setOnClickListener { setViewAndDetect(getBitmapFromAsset(IMAGE_PRESET_3)) }
-            // Callback khi người dùng chạm vào bất kỳ đối tượng nào được phát hiện.
+            // Callback received when the user taps on any of the detected objects.
             ivPreview.setOnObjectClickListener { objectImage ->
                 startProductImageSearch(objectImage)
             }
-            // hiển thị mặc định
+            // Default display
             setViewAndDetect(getBitmapFromAsset(IMAGE_PRESET_2))
         }
     }
 
     /**
-     * Bắt đầu search
+     * Start the product image search activity
      */
     private fun startProductImageSearch(objectImage: Bitmap) {
+        try {
+            // Create file based Bitmap. We use PNG to preserve the image quality
+            val savedFile = createImageFile(ProductSearchActivity.CROPPED_IMAGE_FILE_NAME)
+            objectImage.compress(Bitmap.CompressFormat.PNG, 100, FileOutputStream(savedFile))
 
+            // Start the product search activity (using Vision Product Search API.).
+            startActivity(
+                Intent(
+                    this,
+                    ProductSearchActivity::class.java
+                ).apply {
+                    // As the size limit of a bundle is 1MB, we need to save the bitmap to a file
+                    // and reload it in the other activity to support large query images.
+                    putExtra(
+                        ProductSearchActivity.REQUEST_TARGET_IMAGE_PATH,
+                        savedFile.absolutePath
+                    )
+                })
+        } catch (e: Exception) {
+            // IO Exception, Out Of memory ....
+            Toast.makeText(this, e.message, Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Error starting the product image search activity.", e)
+        }
     }
 
     /**
-     * Cập nhật giao diện người dùng với hình ảnh đầu vào và bắt đầu phát hiện đối tượng
+     * Update the UI with the input image and start object detection
      */
     private fun setViewAndDetect(bitmap: Bitmap?) {
         bitmap?.let {
-            // Xóa các dấu chấm cho biết kết quả phát hiện trước đó
+            // Clear the dots indicating the previous detection result
             viewBinding.ivPreview.drawDetectionResults(emptyList())
 
-            // Hiển thị hình ảnh đầu vào trên màn hình.
+            // Display the input image on the screen.
             viewBinding.ivPreview.setImageBitmap(bitmap)
 
-            // Chạy phát hiện đối tượng và hiển thị kết quả phát hiện.
+            // Run object detection and show the detection results.
             runObjectDetection(bitmap)
         }
     }
@@ -107,10 +145,10 @@ class ObjectDetectorActivity : AppCompatActivity() {
      * Detect Objects in a given Bitmap
      */
     private fun runObjectDetection(bitmap: Bitmap) {
-        // Step 1: tạo đối tượng InputImage của ML Kit
+        // Step 1: create ML Kit's InputImage object
         val image = InputImage.fromBitmap(bitmap, 0)
 
-        // Step 2: có được đối tượng dò và cấu hình
+        // Step 2: acquire detector object
         val options = ObjectDetectorOptions.Builder()
             .setDetectorMode(ObjectDetectorOptions.SINGLE_IMAGE_MODE)
             .enableMultipleObjects()
@@ -118,53 +156,51 @@ class ObjectDetectorActivity : AppCompatActivity() {
             .build()
         val objectDetector = ObjectDetection.getClient(options)
 
-        // Step 3: cung cấp hình ảnh đã cho cho trình phát hiện và thiết lập gọi lại
+        // Step 3: feed given image to detector and setup callback
         objectDetector.process(image)
             .addOnSuccessListener { results ->
-                debugPrint(results)
-
-                // Chỉ giữ lại các đối tượng FASHION_GOOD
+                // Keep only the FASHION_GOOD objects
                 val filteredResults = results.filter { result ->
                     result.labels.indexOfFirst { it.text == PredefinedCategory.FASHION_GOOD } != -1
                 }
 
-                // Trực quan hóa kết quả phát hiện
+                // Visualize the detection result
                 runOnUiThread {
                     viewBinding.ivPreview.drawDetectionResults(filteredResults)
                 }
 
             }
             .addOnFailureListener {
-                // Nhiệm vụ không thành công với một ngoại lệ
+                // Task failed with an exception
                 Log.e(TAG, it.message.toString())
             }
 
     }
 
     /**
-     * Hiển thị Ứng dụng Máy ảnh để chụp ảnh dựa trên Ý định
+     * Show Camera App to take a picture based Intent
      */
     private fun dispatchTakePictureIntent() {
         Intent(MediaStore.ACTION_IMAGE_CAPTURE).also { takePictureIntent ->
-            // Đảm bảo rằng có một hoạt động camera để xử lý mục đích
+            // Ensure that there's a camera activity to handle the intent
             takePictureIntent.resolveActivity(packageManager)?.also {
-                // Tạo Tệp nơi ảnh sẽ đi
+                // Create the File where the photo should go
                 val photoFile: File? = try {
                     createImageFile(TAKEN_BY_CAMERA_FILE_NAME)
                 } catch (ex: IOException) {
-                    // Đã xảy ra lỗi khi tạo Tệp
+                    // Error occurred while creating the File
                     null
                 }
-                // Chỉ tiếp tục nếu Tệp đã được tạo thành công
+                // Continue only if the File was successfully created
                 photoFile?.also {
                     cameraPhotoUri = FileProvider.getUriForFile(
                         this,
                         "com.google.codelabs.productimagesearch.fileprovider",
                         it
                     )
-                    // Đặt tệp đầu ra để chụp ảnh
+                    // Setting output file to take a photo
                     takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri)
-                    // Mở mục đích dựa trên máy ảnh.
+                    // Open camera based Intent.
                     startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE)
                 }
             } ?: run {
@@ -175,7 +211,7 @@ class ObjectDetectorActivity : AppCompatActivity() {
     }
 
     /**
-     * Hiển thị ứng dụng thư viện để chọn ảnh tuỳ ý.
+     * Show gallery app to pick photo from intent.
      */
     private fun choosePhotoFromGalleryApp() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -185,13 +221,13 @@ class ObjectDetectorActivity : AppCompatActivity() {
     }
 
     /**
-     * Tệp đầu ra sẽ được lưu trữ trên bộ nhớ riêng của ứng dụng này
-     * Bằng cách gọi hàm getExternalFilesDir
-     * Ảnh này sẽ bị xóa khi gỡ cài đặt ứng dụng.
+     * The output file will be stored on private storage of this app
+     * By calling function getExternalFilesDir
+     * This photo will be deleted when uninstall app.
      */
     @Throws(IOException::class)
     private fun createImageFile(fileName: String): File {
-        // Tạo tên tệp hình ảnh
+        // Create an image file name
         val storageDir: File? = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
         return File.createTempFile(
             fileName, /* prefix */
@@ -201,8 +237,8 @@ class ObjectDetectorActivity : AppCompatActivity() {
     }
 
     /**
-     * Phương pháp sao chép mẫu tệp nội dung vào thư mục ứng dụng riêng.
-     * Trả về Uri của tệp đầu ra.
+     * Method to copy asset files sample to private app folder.
+     * Return the Uri of an output file.
      */
     private fun getBitmapFromAsset(fileName: String): Bitmap? {
         return try {
@@ -213,30 +249,30 @@ class ObjectDetectorActivity : AppCompatActivity() {
     }
 
     /**
-     * Chức năng lấy Bitmap từ Uri.
-     * Uri được nhận bằng cách sử dụng Ý định được gọi tới ứng dụng Máy ảnh hoặc Thư viện
-     * SuppressWarnings => đã đề cập đến cảnh báo này.
+     * Function to get the Bitmap From Uri.
+     * Uri is received by using Intent called to Camera or Gallery app
+     * SuppressWarnings => we have covered this warning.
      */
     private fun getBitmapFromUri(imageUri: Uri): Bitmap? {
         val bitmap = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, imageUri))
             } else {
-                // Thêm chú thích Suppress để bỏ qua cảnh báo của Android Studio.
-                // Cảnh báo này được giải quyết bằng chức năng ImageDecoder.
+                // Add Suppress annotation to skip warning by Android Studio.
+                // This warning resolved by ImageDecoder function.
                 @Suppress("DEPRECATION")
                 MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
             }
         } catch (ex: IOException) {
             null
         }
-
-        // Tạo một bản sao của bitmap theo định dạng mong muốn
+        
+        // Make a copy of the bitmap in a desirable format
         return bitmap?.copy(Bitmap.Config.ARGB_8888, false)
     }
 
     /**
-     * Chức năng ghi thông tin về đối tượng được phát hiện bởi ML Kit.
+     * Function to log information about object detected by ML Kit.
      */
     private fun debugPrint(detectedObjects: List<DetectedObject>) {
         detectedObjects.forEachIndexed { index, detectedObject ->

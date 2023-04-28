@@ -14,7 +14,7 @@ import kotlin.math.max
 import kotlin.math.pow
 
 /**
- * Tùy chỉnh ImageView có thể nhấp được trên một số Giới hạn kết quả phát hiện.
+ * Customize ImageView which can be clickable on some Detection Result Bound.
  */
 class ImageClickableView : AppCompatImageView {
 
@@ -27,8 +27,8 @@ class ImageClickableView : AppCompatImageView {
     private val dotPaint = createDotPaint()
     private var onObjectClickListener: ((cropBitmap: Bitmap) -> Unit)? = null
 
-    // Biến này được sử dụng để giữ kích thước thực tế của kết quả phát hiện hộp giới hạn do
-    // tỷ lệ có thể thay đổi sau khi Bitmap điền vào ImageView
+    // This variable is used to hold the actual size of bounding box detection result due to
+    // the ratio might changed after Bitmap fill into ImageView
     private var transformedResults = listOf<TransformedDetectionResult>()
 
     constructor(context: Context) : super(context)
@@ -36,27 +36,27 @@ class ImageClickableView : AppCompatImageView {
     constructor(context: Context, attrs: AttributeSet) : super(context, attrs)
 
     /**
-     * Gọi lại khi người dùng nhấp vào hình chữ nhật kết quả phát hiện.
+     * Callback when user click to detection result rectangle.
      */
     fun setOnObjectClickListener(listener: ((objectImage: Bitmap) -> Unit)) {
         this.onObjectClickListener = listener
     }
 
     /**
-     * Vẽ vòng tròn màu trắng ở tâm của từng đối tượng được phát hiện trên ảnh
+     * Draw white circle at the center of each detected object on the image
      */
     fun drawDetectionResults(results: List<DetectedObject>) {
         (drawable as? BitmapDrawable)?.bitmap?.let { srcImage ->
-            // Nhận kích thước tỷ lệ dựa trên chiều rộng/chiều cao
+            // Get scale size based width/height
             val scaleFactor =
                 max(srcImage.width / width.toFloat(), srcImage.height / height.toFloat())
-            // Tính toán tổng số phần đệm (dựa trên trung tâm bên trong loại tỷ lệ)
+            // Calculate the total padding (based center inside scale type)
             val diffWidth = abs(width - srcImage.width / scaleFactor) / 2
             val diffHeight = abs(height - srcImage.height / scaleFactor) / 2
 
-            // Chuyển đổi Hộp giới hạn ban đầu thành hộp giới hạn thực tế dựa trên kích thước hiển thị của ImageView.
+            // Transform the original Bounding Box to actual bounding box based the display size of ImageView.
             transformedResults = results.map { result ->
-                // Tính toán để tạo tọa độ mới của Rectangle Box match trên ImageView.
+                // Calculate to create new coordinates of Rectangle Box match on ImageView.
                 val actualRectBoundingBox = RectF(
                     (result.boundingBox.left / scaleFactor) + diffWidth,
                     (result.boundingBox.top / scaleFactor) + diffHeight,
@@ -67,25 +67,25 @@ class ImageClickableView : AppCompatImageView {
                     (actualRectBoundingBox.right + actualRectBoundingBox.left) / 2,
                     (actualRectBoundingBox.bottom + actualRectBoundingBox.top) / 2,
                 )
-                // Chuyển sang đối tượng mới để chứa dữ liệu bên trong.
-                // Đối tượng này là cần thiết để tránh hiệu suất
+                // Transform to new object to hold the data inside.
+                // This object is necessary to avoid performance
                 TransformedDetectionResult(actualRectBoundingBox, result.boundingBox, dotCenter)
             }
             Log.d(
                 TAG,
                 "srcImage: ${srcImage.width}/${srcImage.height} - imageView: ${width}/${height} => scaleFactor: $scaleFactor"
             )
-            // Không hợp lệ để vẽ lại canvas
-            // Phương thức onDraw sẽ được gọi với dữ liệu mới.
+            // Invalid to re-draw the canvas
+            // Method onDraw will be called with new data.
             invalidate()
         }
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        // Nhận kết quả phát hiện và vẽ dạng xem chấm lên đối tượng được phát hiện.
+        // Getting detection results and draw the dot view onto detected object.
         transformedResults.forEach { result ->
-            // Vẽ Dot View
+            // Draw Dot View
             canvas.drawCircle(result.dotCenter.x, result.dotCenter.y, CLICKABLE_RADIUS, dotPaint)
         }
     }
@@ -102,7 +102,7 @@ class ImageClickableView : AppCompatImageView {
                         val dy = (touchY - it.dotCenter.y).toDouble().pow(2.0)
                         (dx + dy) < CLICKABLE_RADIUS.toDouble().pow(2.0)
                     }
-                // Nếu tìm thấy một đối tượng phù hợp, hãy gọi đối tượngClickListener
+                // If a matching object found, call the objectClickListener
                 if (index != -1) {
                     cropBitMapBasedResult(transformedResults[index])?.let {
                         onObjectClickListener?.invoke(it)
@@ -114,10 +114,10 @@ class ImageClickableView : AppCompatImageView {
     }
 
     /**
-     * Chức năng này sẽ được sử dụng để cắt đoạn Bitmap dựa trên thao tác chạm của người dùng.
+     * This function will be used to crop the segment of Bitmap based touching by user.
      */
     private fun cropBitMapBasedResult(result: TransformedDetectionResult): Bitmap? {
-        // Cắt hình ảnh từ Bitmap gốc với Hộp giới hạn Rect gốc
+        // Crop image from Original Bitmap with Original Rect Bounding Box
         (drawable as? BitmapDrawable)?.bitmap?.let {
             return Bitmap.createBitmap(
                 it,
@@ -131,22 +131,22 @@ class ImageClickableView : AppCompatImageView {
     }
 
     /**
-     *Quay lại Dot Paint để vẽ hình tròn
+     * Return Dot Paint to draw circle
      */
     private fun createDotPaint() = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.FILL
         setShadowLayer(SHADOW_RADIUS, 0F, 0F, Color.BLACK)
-        // Buộc sử dụng phần mềm để kết xuất bằng cách tắt tăng tốc phần cứng.
-        // Quan trọng: bóng sẽ không hoạt động nếu không có dòng này.
+        // Force to use software to render by disable hardware acceleration.
+        // Important: the shadow will not work without this line.
         setLayerType(LAYER_TYPE_SOFTWARE, this)
     }
 }
 
 /**
- * Lớp này chứa dữ liệu được chuyển đổi
- * @property: factBoxRectF: Hộp giới hạn sau khi tính toán
- * @property: originalBoxRectF: Hộp giới hạn ban đầu (Trước khi chuyển đổi), sử dụng để cắt ảnh bitmap.
+ * This class holds the transformed data
+ * @property: actualBoxRectF: The bounding box after calculated
+ * @property: originalBoxRectF: The original bounding box (Before transformed), use for crop bitmap.
  */
 data class TransformedDetectionResult(
     val actualBoxRectF: RectF,
